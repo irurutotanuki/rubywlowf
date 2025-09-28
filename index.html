@@ -79,19 +79,19 @@
     <!-- ===== 初期画面 ===== -->
     <div id="setup-screen" class="w-full max-w-md mx-auto">
         <div class="bg-gray-800 rounded-2xl shadow-2xl p-8">
-            <h1 class="text-4xl font-bold text-center mb-2 text-white">人狼オンライン</h1>
+            <h1 class="text-3xl sm:text-4xl font-bold text-center mb-2 text-white">人狼オンライン</h1>
             <p class="text-center text-gray-400 mb-8">仲間と究極の心理戦を始めよう</p>
             
             <div class="space-y-4">
-                <input type="text" id="player-name" placeholder="あなたの名前を入力" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white">
-                <input type="text" id="game-id-input" placeholder="部屋ID (参加する場合)" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white">
+                <input type="text" id="player-name" placeholder="あなたの名前を入力" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white text-lg">
+                <input type="text" id="game-id-input" placeholder="部屋ID (参加する場合)" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white text-lg">
             </div>
 
             <div class="flex flex-col md:flex-row gap-4 mt-8">
-                <button id="create-game-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105">
+                <button id="create-game-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105 text-lg">
                     <i class="fas fa-plus-circle mr-2"></i>部屋を建てる
                 </button>
-                <button id="join-game-btn" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105">
+                <button id="join-game-btn" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105 text-lg">
                     <i class="fas fa-sign-in-alt mr-2"></i>部屋に入る
                 </button>
             </div>
@@ -106,7 +106,7 @@
     <!-- ===== ゲーム画面 ===== -->
     <div id="game-screen" class="hidden w-full h-full max-w-7xl mx-auto flex flex-col md:flex-row gap-4">
 
-        <!-- 左パネル: プレイヤー情報 & 役職 -->
+        <!-- 左パネル (スマホでは上部): プレイヤー情報 & 役職 -->
         <div class="w-full md:w-1/3 lg:w-1/4 flex flex-col gap-4">
             <!-- ゲーム情報 -->
             <div class="bg-gray-800 p-4 rounded-2xl shadow-lg">
@@ -129,16 +129,16 @@
                 <p id="my-role-description" class="text-sm text-gray-400 mt-1"></p>
             </div>
 
-            <!-- プレイヤー一覧 -->
-            <div class="bg-gray-800 p-4 rounded-2xl shadow-lg flex-grow">
+            <!-- プレイヤー一覧 (スマホでは縦スクロール) -->
+            <div class="bg-gray-800 p-4 rounded-2xl shadow-lg flex-grow min-h-0">
                 <h3 class="text-lg font-bold text-white mb-3">参加者 (<span id="player-count">0</span>人)</h3>
-                <div id="players-list" class="space-y-2 overflow-y-auto max-h-64 md:max-h-full">
+                <div id="players-list" class="space-y-2 overflow-y-auto max-h-full">
                     <!-- プレイヤーカードはJSで生成 -->
                 </div>
             </div>
         </div>
 
-        <!-- 右パネル: チャット & アクション -->
+        <!-- 右パネル (スマホでは下部): チャット & アクション -->
         <div class="w-full md:w-2/3 lg:w-3/4 flex flex-col bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
             <!-- システムメッセージ -->
             <div id="system-message" class="p-4 text-center bg-gray-900 text-yellow-300 font-semibold hidden"></div>
@@ -555,14 +555,21 @@
             
             async function processExecution() {
                 const executedPlayerId = localGameState.lastExecuted;
+                
+                const playersSnapshot = await db.collection(`games/${currentGameId}/players`).get();
+                const playersData = {};
+                playersSnapshot.forEach(doc => { playersData[doc.id] = doc.data(); });
+
                 if(executedPlayerId) {
-                    await db.doc(`games/${currentGameId}/players/${executedPlayerId}`).update({ isAlive: false });
+                    playersData[executedPlayerId].isAlive = false;
                 }
 
-                const gameResult = await checkWinCondition();
+                const gameResult = checkWinCondition(playersData);
                 if (gameResult.isGameOver) {
+                    if (executedPlayerId) { await db.doc(`games/${currentGameId}/players/${executedPlayerId}`).update({ isAlive: false }); }
                     await endGame(gameResult.winner, gameResult.message);
                 } else {
+                    if (executedPlayerId) { await db.doc(`games/${currentGameId}/players/${executedPlayerId}`).update({ isAlive: false }); }
                     await db.doc(`games/${currentGameId}`).update({ phase: 'night' });
                 }
                 
@@ -575,7 +582,11 @@
             }
 
             async function processNightActions() {
-                const alivePlayers = Object.values(localGameState.players).filter(p => p.isAlive);
+                const playersSnapshot = await db.collection(`games/${currentGameId}/players`).get();
+                const playersData = {};
+                playersSnapshot.forEach(doc => { playersData[doc.id] = doc.data(); });
+                
+                const alivePlayers = Object.values(playersData).filter(p => p.isAlive);
                 const werewolf = alivePlayers.find(p => p.role === 'werewolf');
                 const seer = alivePlayers.find(p => p.role === 'seer');
                 const knight = alivePlayers.find(p => p.role === 'knight');
@@ -587,22 +598,24 @@
                 let finalAttackedPlayerId = null;
                 if (attackedPlayerId && attackedPlayerId !== guardedPlayerId) {
                     finalAttackedPlayerId = attackedPlayerId;
-                    await db.doc(`games/${currentGameId}/players/${attackedPlayerId}`).update({ isAlive: false });
+                    playersData[finalAttackedPlayerId].isAlive = false;
                 }
                 
                 let seerResult = null;
-                if (divinedPlayerId && localGameState.players[divinedPlayerId]) {
-                     const targetRole = localGameState.players[divinedPlayerId].role;
+                if (divinedPlayerId && playersData[divinedPlayerId]) {
+                     const targetRole = playersData[divinedPlayerId].role;
                      seerResult = {
-                         targetName: localGameState.players[divinedPlayerId].name,
+                         targetName: playersData[divinedPlayerId].name,
                          isWerewolf: targetRole === 'werewolf'
                      };
                 }
 
-                const gameResult = await checkWinCondition();
+                const gameResult = checkWinCondition(playersData);
                 if(gameResult.isGameOver) {
+                    if (finalAttackedPlayerId) { await db.doc(`games/${currentGameId}/players/${finalAttackedPlayerId}`).update({ isAlive: false }); }
                     await endGame(gameResult.winner, gameResult.message);
                 } else {
+                    if (finalAttackedPlayerId) { await db.doc(`games/${currentGameId}/players/${finalAttackedPlayerId}`).update({ isAlive: false }); }
                     await db.doc(`games/${currentGameId}`).update({
                         phase: 'day-discussion',
                         lastAttacked: finalAttackedPlayerId,
@@ -612,19 +625,16 @@
                 }
                 
                 const batch = db.batch();
-                Object.values(localGameState.players).forEach(p => {
+                Object.values(playersData).forEach(p => {
                     const playerRef = db.doc(`games/${currentGameId}/players/${p.id}`);
                     batch.update(playerRef, { nightActionTarget: null });
                 });
                 await batch.commit();
             }
 
-            async function checkWinCondition() {
-                const snapshot = await db.collection(`games/${currentGameId}/players`).get();
-                const playersData = [];
-                snapshot.forEach(doc => playersData.push(doc.data()));
-
-                const alivePlayers = playersData.filter(p => p.isAlive);
+            function checkWinCondition(playersData) {
+                const allPlayers = Object.values(playersData);
+                const alivePlayers = allPlayers.filter(p => p.isAlive);
                 const aliveWerewolves = alivePlayers.filter(p => p.role === 'werewolf');
                 const aliveVillagers = alivePlayers.filter(p => p.role !== 'werewolf');
 
