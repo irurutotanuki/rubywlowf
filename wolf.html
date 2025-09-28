@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人狼オンラインゲーム</title>
+    <!-- Tailwind CSSの読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts (Inter) の読み込み -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome (アイコン) の読み込み -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* 基本フォント設定 */
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            background-color: #1a202c; /* ダークモード背景 */
+            color: #e2e8f0; /* 明るいテキスト色 */
+        }
+        /* スクロールバーのスタイル */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2d3748;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #718096;
+        }
+        /* トランジション効果 */
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+        /* 死亡したプレイヤーの表示 */
+        .dead-player {
+            filter: grayscale(100%) opacity(50%);
+        }
+        /* メッセージのスタイル */
+        .message-bubble {
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .my-message {
+            background-color: #4c51bf;
+            align-self: flex-end;
+        }
+        .other-message {
+            background-color: #4a5568;
+            align-self: flex-start;
+        }
+        /* 役職カードのスタイル */
+        .role-card {
+            border-width: 2px;
+            border-style: solid;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .role-villager { border-color: #63b3ed; } /* 村人 */
+        .role-werewolf { border-color: #f56565; } /* 人狼 */
+        .role-seer { border-color: #f6e05e; } /* 占い師 */
+        .role-knight { border-color: #a0aec0; } /* 騎士 */
+
+        /* 選択されたプレイヤーカードのスタイル */
+        .player-card.selected {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.7);
+            border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="w-full h-screen flex items-center justify-center p-4">
+
+    <!-- ===== 初期画面 ===== -->
+    <div id="setup-screen" class="w-full max-w-md mx-auto">
+        <div class="bg-gray-800 rounded-2xl shadow-2xl p-8">
+            <h1 class="text-4xl font-bold text-center mb-2 text-white">人狼オンライン</h1>
+            <p class="text-center text-gray-400 mb-8">仲間と究極の心理戦を始めよう</p>
+            
+            <div class="space-y-4">
+                <input type="text" id="player-name" placeholder="あなたの名前を入力" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white">
+                <input type="text" id="game-id-input" placeholder="部屋ID (参加する場合)" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white">
+            </div>
+
+            <div class="flex flex-col md:flex-row gap-4 mt-8">
+                <button id="create-game-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105">
+                    <i class="fas fa-plus-circle mr-2"></i>部屋を建てる
+                </button>
+                <button id="join-game-btn" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105">
+                    <i class="fas fa-sign-in-alt mr-2"></i>部屋に入る
+                </button>
+            </div>
+            <p id="setup-error" class="text-red-400 text-center mt-4 h-5"></p>
+        </div>
+        <div class="text-center mt-6 text-gray-500 text-sm">
+            <p>※ このゲームを遊ぶにはFirebaseの設定が必要です。</p>
+            <p>コード内の `firebaseConfig` をご自身のものに書き換えてください。</p>
+        </div>
+    </div>
+
+    <!-- ===== ゲーム画面 ===== -->
+    <div id="game-screen" class="hidden w-full h-full max-w-7xl mx-auto flex flex-col md:flex-row gap-4">
+
+        <!-- 左パネル: プレイヤー情報 & 役職 -->
+        <div class="w-full md:w-1/3 lg:w-1/4 flex flex-col gap-4">
+            <!-- ゲーム情報 -->
+            <div class="bg-gray-800 p-4 rounded-2xl shadow-lg">
+                <div class="flex justify-between items-center mb-2">
+                     <h2 class="text-xl font-bold text-white">ゲーム情報</h2>
+                     <button id="copy-game-id" class="text-gray-400 hover:text-white"><i class="fas fa-copy"></i></button>
+                </div>
+                <p class="text-sm text-gray-400">部屋ID: <span id="game-id-display" class="font-mono bg-gray-700 px-2 py-1 rounded"></span></p>
+                <p class="mt-2 text-lg">
+                    <span id="day-count" class="font-bold text-indigo-400">1</span>日目 - <span id="game-phase" class="font-semibold text-yellow-400">待機中</span>
+                </p>
+                <p id="timer" class="text-3xl font-bold text-center mt-2 text-red-500"></p>
+            </div>
+            
+            <!-- 自分の役職 -->
+            <div id="my-role-card" class="bg-gray-800 p-4 rounded-2xl shadow-lg text-center role-card hidden">
+                <h3 class="text-lg font-bold text-white mb-2">あなたの役職</h3>
+                <i id="my-role-icon" class="text-5xl mb-2"></i>
+                <p id="my-role-name" class="text-2xl font-bold"></p>
+                <p id="my-role-description" class="text-sm text-gray-400 mt-1"></p>
+            </div>
+
+            <!-- プレイヤー一覧 -->
+            <div class="bg-gray-800 p-4 rounded-2xl shadow-lg flex-grow">
+                <h3 class="text-lg font-bold text-white mb-3">参加者 (<span id="player-count">0</span>人)</h3>
+                <div id="players-list" class="space-y-2 overflow-y-auto max-h-64 md:max-h-full">
+                    <!-- プレイヤーカードはJSで生成 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 右パネル: チャット & アクション -->
+        <div class="w-full md:w-2/3 lg:w-3/4 flex flex-col bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
+            <!-- システムメッセージ -->
+            <div id="system-message" class="p-4 text-center bg-gray-900 text-yellow-300 font-semibold hidden"></div>
+
+            <!-- チャットログ -->
+            <div id="chat-box" class="flex-grow p-4 flex flex-col gap-3 overflow-y-auto">
+                <!-- メッセージはJSで生成 -->
+            </div>
+
+            <!-- 入力 & アクションエリア -->
+            <div class="p-4 bg-gray-900 border-t border-gray-700">
+                <div id="action-area">
+                    <!-- 待機中 / ゲーム開始ボタン -->
+                    <div id="waiting-area" class="text-center">
+                        <p class="mb-4 text-gray-400">4人以上集まるとゲームを開始できます。</p>
+                        <button id="start-game-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed" disabled>
+                            <i class="fas fa-play-circle mr-2"></i>ゲーム開始
+                        </button>
+                    </div>
+
+                    <!-- チャット入力 -->
+                    <div id="chat-input-area" class="hidden">
+                        <form id="chat-form" class="flex gap-3">
+                            <input type="text" id="chat-input" placeholder="メッセージを入力..." class="flex-grow px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white disabled:bg-gray-800" autocomplete="off">
+                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-5 rounded-lg transition-all">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- アクションボタン -->
+                    <div id="action-buttons-area" class="hidden text-center">
+                        <p id="action-prompt" class="mb-4 text-gray-300">行動を選択してください。</p>
+                        <button id="confirm-action-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed">
+                            <i class="fas fa-check-circle mr-2"></i>この人に決定
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    
+    <!-- 結果表示モーダル -->
+    <div id="result-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-2xl shadow-2xl p-8 text-center max-w-lg w-full">
+            <h2 id="result-title" class="text-4xl font-bold mb-4"></h2>
+            <p id="result-message" class="text-lg text-gray-300 mb-6"></p>
+            <div id="result-roles" class="mb-8 space-y-2">
+                <!-- 役職結果はJSで表示 -->
+            </div>
+            <button id="play-again-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105">
+                もう一度遊ぶ
+            </button>
+        </div>
+    </div>
+
+
+    <!-- Firebase SDKの読み込み -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    
+    <script>
+        // =================================================================================
+        // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+        //
+        // 【重要】Firebaseプロジェクトの設定をここに貼り付けてください
+        //
+        // =================================================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyAbbm_0X61_tPU8HPjeUWr0tdGAs_j5aqY",
+            authDomain: "jinro-game-online.firebaseapp.com",
+            projectId: "jinro-game-online",
+            storageBucket: "jinro-game-online.firebasestorage.app",
+            messagingSenderId: "307191876873",
+            appId: "1:307191876873:web:d701bea565184a2d1197d8",
+            measurementId: "G-DDPXXM5PB4"
+        };
+        // =================================================================================
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        // =================================================================================
+
+        // Firebaseの初期化チェック
+        if (!firebaseConfig.projectId || firebaseConfig.projectId === "PASTE_HERE") {
+            document.getElementById('setup-error').textContent = "Firebaseが設定されていません。";
+            ['create-game-btn', 'join-game-btn'].forEach(id => document.getElementById(id).disabled = true);
+        } else {
+            // Firebaseサービスの初期化
+            const app = firebase.initializeApp(firebaseConfig);
+            const auth = firebase.auth();
+            const db = firebase.firestore();
+
+            // ゲームの状態を管理する変数
+            let currentGameId = null;
+            let currentPlayerId = null;
+            let localGameState = {};
+            let unsubscribeGame = () => {};
+            let unsubscribePlayers = () => {};
+            let unsubscribeChat = () => {};
+            let countdownInterval = null;
+            let selectedPlayerId = null;
+            
+            // DOM要素の取得 (省略)
+            const setupScreen = document.getElementById('setup-screen');
+            const gameScreen = document.getElementById('game-screen');
+            const playerNameInput = document.getElementById('player-name');
+            const gameIdInput = document.getElementById('game-id-input');
+            const createGameBtn = document.getElementById('create-game-btn');
+            const joinGameBtn = document.getElementById('join-game-btn');
+            const setupError = document.getElementById('setup-error');
+            const gameIdDisplay = document.getElementById('game-id-display');
+            const copyGameIdBtn = document.getElementById('copy-game-id');
+            const dayCountEl = document.getElementById('day-count');
+            const gamePhaseEl = document.getElementById('game-phase');
+            const timerEl = document.getElementById('timer');
+            const myRoleCard = document.getElementById('my-role-card');
+            const myRoleIcon = document.getElementById('my-role-icon');
+            const myRoleName = document.getElementById('my-role-name');
+            const myRoleDescription = document.getElementById('my-role-description');
+            const playersList = document.getElementById('players-list');
+            const playerCountEl = document.getElementById('player-count');
+            const systemMessage = document.getElementById('system-message');
+            const chatBox = document.getElementById('chat-box');
+            const waitingArea = document.getElementById('waiting-area');
+            const startGameBtn = document.getElementById('start-game-btn');
+            const chatInputArea = document.getElementById('chat-input-area');
+            const chatForm = document.getElementById('chat-form');
+            const chatInput = document.getElementById('chat-input');
+            const actionButtonsArea = document.getElementById('action-buttons-area');
+            const actionPrompt = document.getElementById('action-prompt');
+            const confirmActionBtn = document.getElementById('confirm-action-btn');
+            const resultModal = document.getElementById('result-modal');
+            const resultTitle = document.getElementById('result-title');
+            const resultMessage = document.getElementById('result-message');
+            const resultRoles = document.getElementById('result-roles');
+            const playAgainBtn = document.getElementById('play-again-btn');
+
+            // 役職定義 (省略)
+             const ROLES = {
+                werewolf: { name: '人狼', icon: 'fa-solid fa-dog', color: 'text-red-400', team: 'werewolf', description: '夜に村人を一人襲撃できます。正体を隠し、村人を欺きましょう。' },
+                villager: { name: '村人', icon: 'fa-solid fa-user', color: 'text-blue-400', team: 'villager', description: '特別な能力はありません。議論を元に人狼を見つけ出しましょう。' },
+                seer: { name: '占い師', icon: 'fa-solid fa-eye', color: 'text-yellow-400', team: 'villager', description: '夜に一人を選び、その人が人狼かそうでないかを知ることができます。' },
+                knight: { name: '騎士', icon: 'fa-solid fa-shield-halved', color: 'text-gray-400', team: 'villager', description: '夜に一人を選び、人狼の襲撃から守ることができます。' },
+            };
+            const PHASE_TEXT = {
+                waiting: '待機中',
+                'day-discussion': '昼の議論',
+                'day-vote': '投票',
+                'execution': '処刑結果',
+                'night': '夜のアクション',
+                'result': 'ゲーム終了',
+            };
+
+            // ========== イベントリスナー ==========
+            
+            createGameBtn.addEventListener('click', async () => {
+                const playerName = playerNameInput.value.trim();
+                if (!playerName) {
+                    setupError.textContent = '名前を入力してください。';
+                    return;
+                }
+                const newGameId = generateGameId();
+                currentGameId = newGameId;
+                await setupGame(newGameId, playerName, true);
+            });
+
+            joinGameBtn.addEventListener('click', async () => {
+                const playerName = playerNameInput.value.trim();
+                const gameId = gameIdInput.value.trim();
+                if (!playerName || !gameId) {
+                    setupError.textContent = '名前と部屋IDを入力してください。';
+                    return;
+                }
+                currentGameId = gameId;
+                await setupGame(gameId, playerName, false);
+            });
+
+            startGameBtn.addEventListener('click', async () => {
+                if (localGameState.hostId !== currentPlayerId) return;
+                const players = Object.values(localGameState.players);
+                const assignedRoles = assignRoles(players.length);
+                
+                const batch = db.batch();
+                players.forEach((player, index) => {
+                    const playerRef = db.doc(`games/${currentGameId}/players/${player.id}`);
+                    batch.update(playerRef, { role: assignedRoles[index] });
+                });
+                await batch.commit();
+
+                await db.doc(`games/${currentGameId}`).update({
+                    status: 'playing',
+                    day: 1,
+                    phase: 'day-discussion',
+                    phaseEndTime: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastExecuted: null,
+                    lastAttacked: null,
+                    seerResult: null,
+                });
+            });
+            
+            chatForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const message = chatInput.value.trim();
+                if (message) {
+                    const myPlayer = localGameState.players[currentPlayerId];
+                    await db.collection(`games/${currentGameId}/chat`).add({
+                        playerId: currentPlayerId,
+                        playerName: myPlayer.name,
+                        message: message,
+                        isGhost: !myPlayer.isAlive,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    });
+                    chatInput.value = '';
+                }
+            });
+            
+            playersList.addEventListener('click', (e) => {
+                const card = e.target.closest('.player-card');
+                if (card && card.dataset.selectable === 'true') {
+                    const playerId = card.dataset.id;
+                    const currentSelected = playersList.querySelector('.player-card.selected');
+                    if (currentSelected) {
+                        currentSelected.classList.remove('selected');
+                    }
+                    if (selectedPlayerId === playerId) {
+                        selectedPlayerId = null;
+                    } else {
+                        card.classList.add('selected');
+                        selectedPlayerId = playerId;
+                    }
+                    updateConfirmActionBtnState();
+                }
+            });
+
+            confirmActionBtn.addEventListener('click', async () => {
+                if (!selectedPlayerId) return;
+                const playerRef = db.doc(`games/${currentGameId}/players/${currentPlayerId}`);
+
+                if (localGameState.phase === 'day-vote') {
+                    await playerRef.update({ voteTarget: selectedPlayerId });
+                    showSystemMessage(`あなたは ${localGameState.players[selectedPlayerId].name} に投票しました。`, 'info', 5000);
+                } else if (localGameState.phase === 'night') {
+                    await playerRef.update({ nightActionTarget: selectedPlayerId });
+                    showSystemMessage(`あなたは ${localGameState.players[selectedPlayerId].name} に能力を使いました。`, 'info', 5000);
+                }
+                
+                actionButtonsArea.classList.add('hidden');
+            });
+
+            copyGameIdBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(currentGameId).then(() => {
+                    showSystemMessage('部屋IDをコピーしました！', 'info', 3000);
+                });
+            });
+
+            playAgainBtn.addEventListener('click', () => {
+                window.location.reload();
+            });
+
+            // ========== ゲームロジック ==========
+            
+            async function setupGame(gameId, playerName, isHost) {
+                setupError.textContent = '';
+                try {
+                    const userCredential = await auth.signInAnonymously();
+                    currentPlayerId = userCredential.user.uid;
+                    const gameRef = db.doc(`games/${gameId}`);
+                    const gameDoc = await gameRef.get();
+
+                    if (isHost) {
+                        if (gameDoc.exists) {
+                           setupError.textContent = 'その部屋IDは既に使用されています。';
+                           return;
+                        }
+                        await gameRef.set({
+                            hostId: currentPlayerId,
+                            status: 'waiting',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        });
+                    } else {
+                        if (!gameDoc.exists || gameDoc.data().status !== 'waiting') {
+                            setupError.textContent = '部屋が見つからないか、ゲームが開始済みです。';
+                            return;
+                        }
+                    }
+                    
+                    const playerRef = db.doc(`games/${gameId}/players/${currentPlayerId}`);
+                    await playerRef.set({
+                        id: currentPlayerId,
+                        name: playerName,
+                        isHost: isHost,
+                        isAlive: true,
+                        role: null,
+                        voteTarget: null,
+                        nightActionTarget: null,
+                    });
+
+                    setupScreen.classList.add('hidden');
+                    gameScreen.classList.remove('hidden');
+                    gameIdDisplay.textContent = gameId;
+                    startListening(gameId);
+                } catch (error) {
+                    console.error("ゲーム設定エラー:", error);
+                    setupError.textContent = 'ゲームの準備に失敗しました。';
+                }
+            }
+            
+            function startListening(gameId) {
+                unsubscribeGame = db.doc(`games/${gameId}`).onSnapshot((doc) => {
+                    const gameData = doc.data();
+                    if (!gameData) return;
+                    const oldPhase = localGameState.phase;
+                    const newPhase = gameData.phase;
+                    localGameState = { ...localGameState, ...gameData };
+                    updateGameInfoUI();
+                    if (oldPhase !== newPhase) {
+                        handlePhaseChange(newPhase);
+                    }
+                });
+
+                unsubscribePlayers = db.collection(`games/${gameId}/players`).onSnapshot((snapshot) => {
+                    localGameState.players = {};
+                    snapshot.forEach(doc => {
+                        localGameState.players[doc.id] = doc.data();
+                    });
+                    renderPlayersList();
+                    updateMyRoleUI();
+                    checkGameStartCondition();
+                    checkPhaseCompletion();
+                });
+
+                unsubscribeChat = db.collection(`games/${gameId}/chat`).orderBy("timestamp").onSnapshot((snapshot) => {
+                    const messages = [];
+                    snapshot.forEach(doc => {
+                        messages.push({id: doc.id, ...doc.data()});
+                    });
+                    renderChat(messages);
+                });
+            }
+            
+            async function handlePhaseChange(newPhase) {
+                console.log(`フェーズ変更: ${newPhase}`);
+                clearTimer();
+                resetUIForNewPhase();
+                if (localGameState.hostId === currentPlayerId) {
+                    await runHostLogicForPhase(newPhase);
+                }
+            }
+            
+            async function runHostLogicForPhase(phase) {
+                const gameRef = db.doc(`games/${currentGameId}`);
+                let phaseDuration = 0;
+                let nextPhase = null;
+                let processingFunction = null;
+
+                if (phase === 'day-discussion') {
+                    phaseDuration = 120;
+                    nextPhase = 'day-vote';
+                } else if (phase === 'day-vote') {
+                    phaseDuration = 30;
+                    processingFunction = processVoting;
+                } else if (phase === 'execution') {
+                    phaseDuration = 5; // 5秒間結果を表示
+                    processingFunction = processExecution;
+                } else if (phase === 'night') {
+                    phaseDuration = 45;
+                    processingFunction = processNightActions;
+                }
+
+                if (phaseDuration > 0) {
+                    const endTime = new Date();
+                    endTime.setSeconds(endTime.getSeconds() + phaseDuration);
+                    await gameRef.update({ phaseEndTime: endTime });
+
+                    setTimeout(async () => {
+                        const latestGameDoc = await gameRef.get();
+                        if (latestGameDoc.exists && latestGameDoc.data().phase === phase) {
+                            if (processingFunction) {
+                                await processingFunction();
+                            } else if (nextPhase) {
+                                await gameRef.update({ phase: nextPhase });
+                            }
+                        }
+                    }, phaseDuration * 1000);
+                }
+            }
+            
+            async function processVoting() {
+                const players = Object.values(localGameState.players).filter(p => p.isAlive);
+                const votes = {};
+                players.forEach(p => {
+                    if(p.voteTarget) {
+                        votes[p.voteTarget] = (votes[p.voteTarget] || 0) + 1;
+                    }
+                });
+
+                let maxVotes = 0;
+                let executedPlayerId = null;
+                for (const [playerId, count] of Object.entries(votes)) {
+                    if (count > maxVotes) {
+                        maxVotes = count;
+                        executedPlayerId = playerId;
+                    } else if (count === maxVotes) {
+                        executedPlayerId = null;
+                    }
+                }
+                
+                await db.doc(`games/${currentGameId}`).update({
+                    phase: 'execution',
+                    lastExecuted: executedPlayerId,
+                });
+            }
+            
+            async function processExecution() {
+                const executedPlayerId = localGameState.lastExecuted;
+                if(executedPlayerId) {
+                    await db.doc(`games/${currentGameId}/players/${executedPlayerId}`).update({ isAlive: false });
+                }
+
+                const gameResult = await checkWinCondition();
+                if (gameResult.isGameOver) {
+                    await endGame(gameResult.winner, gameResult.message);
+                } else {
+                    await db.doc(`games/${currentGameId}`).update({ phase: 'night' });
+                }
+                
+                const batch = db.batch();
+                Object.keys(localGameState.players).forEach(pid => {
+                    const playerRef = db.doc(`games/${currentGameId}/players/${pid}`);
+                    batch.update(playerRef, { voteTarget: null });
+                });
+                await batch.commit();
+            }
+
+            async function processNightActions() {
+                const alivePlayers = Object.values(localGameState.players).filter(p => p.isAlive);
+                const werewolf = alivePlayers.find(p => p.role === 'werewolf');
+                const seer = alivePlayers.find(p => p.role === 'seer');
+                const knight = alivePlayers.find(p => p.role === 'knight');
+
+                let attackedPlayerId = werewolf?.nightActionTarget || null;
+                const guardedPlayerId = knight?.nightActionTarget || null;
+                const divinedPlayerId = seer?.nightActionTarget || null;
+
+                let finalAttackedPlayerId = null;
+                if (attackedPlayerId && attackedPlayerId !== guardedPlayerId) {
+                    finalAttackedPlayerId = attackedPlayerId;
+                    await db.doc(`games/${currentGameId}/players/${attackedPlayerId}`).update({ isAlive: false });
+                }
+                
+                let seerResult = null;
+                if (divinedPlayerId && localGameState.players[divinedPlayerId]) {
+                     const targetRole = localGameState.players[divinedPlayerId].role;
+                     seerResult = {
+                         targetName: localGameState.players[divinedPlayerId].name,
+                         isWerewolf: targetRole === 'werewolf'
+                     };
+                }
+
+                const gameResult = await checkWinCondition();
+                if(gameResult.isGameOver) {
+                    await endGame(gameResult.winner, gameResult.message);
+                } else {
+                    await db.doc(`games/${currentGameId}`).update({
+                        phase: 'day-discussion',
+                        lastAttacked: finalAttackedPlayerId,
+                        seerResult: seerResult,
+                        day: localGameState.day + 1,
+                    });
+                }
+                
+                const batch = db.batch();
+                Object.values(localGameState.players).forEach(p => {
+                    const playerRef = db.doc(`games/${currentGameId}/players/${p.id}`);
+                    batch.update(playerRef, { nightActionTarget: null });
+                });
+                await batch.commit();
+            }
+
+            async function checkWinCondition() {
+                const snapshot = await db.collection(`games/${currentGameId}/players`).get();
+                const playersData = [];
+                snapshot.forEach(doc => playersData.push(doc.data()));
+
+                const alivePlayers = playersData.filter(p => p.isAlive);
+                const aliveWerewolves = alivePlayers.filter(p => p.role === 'werewolf');
+                const aliveVillagers = alivePlayers.filter(p => p.role !== 'werewolf');
+
+                if (aliveWerewolves.length === 0) {
+                    return { isGameOver: true, winner: 'villager', message: '全ての人狼を追放しました。' };
+                }
+                if (aliveWerewolves.length >= aliveVillagers.length) {
+                    return { isGameOver: true, winner: 'werewolf', message: '村人の数が人狼の数以下になりました。' };
+                }
+                return { isGameOver: false };
+            }
+            
+            async function endGame(winner, message) {
+                await db.doc(`games/${currentGameId}`).update({
+                    status: 'finished',
+                    phase: 'result',
+                    winner: winner,
+                    winMessage: message
+                });
+            }
+            
+            // ========== UI更新 ==========
+            function updateGameInfoUI() {
+                dayCountEl.textContent = localGameState.day || 1;
+                gamePhaseEl.textContent = PHASE_TEXT[localGameState.phase] || '待機中';
+                startTimer(localGameState.phaseEndTime);
+            }
+
+            function updateMyRoleUI() {
+                if (!localGameState.players || !localGameState.players[currentPlayerId]) return;
+                
+                const myPlayer = localGameState.players[currentPlayerId];
+                if (myPlayer.role) {
+                    const roleInfo = ROLES[myPlayer.role];
+                    myRoleName.textContent = roleInfo.name;
+                    myRoleIcon.className = `${roleInfo.icon} ${roleInfo.color} text-5xl mb-2`;
+                    myRoleDescription.textContent = roleInfo.description;
+                    myRoleCard.className = `bg-gray-800 p-4 rounded-2xl shadow-lg text-center role-card role-${myPlayer.role}`;
+                    myRoleCard.classList.remove('hidden');
+                }
+            }
+            
+            function renderPlayersList() {
+                playersList.innerHTML = '';
+                const sortedPlayers = Object.values(localGameState.players || {}).sort((a,b) => a.name.localeCompare(b.name));
+                playerCountEl.textContent = sortedPlayers.length;
+
+                sortedPlayers.forEach(player => {
+                    const isMe = player.id === currentPlayerId;
+                    const card = document.createElement('div');
+                    card.className = `player-card flex items-center justify-between p-3 rounded-lg bg-gray-700 transition-all cursor-pointer`;
+                    card.dataset.id = player.id;
+                    
+                    if (!player.isAlive) card.classList.add('dead-player');
+
+                    let voteIndicator = '';
+                    if (localGameState.phase === 'day-vote' && player.voteTarget) {
+                        voteIndicator = `<i class="fas fa-check-circle text-green-400" title="投票済み"></i>`;
+                    }
+                    
+                    const hostIcon = player.isHost ? `<i class="fas fa-crown text-yellow-400 ml-2" title="部屋主"></i>` : '';
+
+                    card.innerHTML = `
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-user-circle text-2xl ${isMe ? 'text-indigo-400' : 'text-gray-400'}"></i>
+                            <span class="font-medium ${!player.isAlive ? 'line-through' : ''}">${player.name}${isMe ? ' (あなた)' : ''}</span>
+                            ${hostIcon}
+                        </div>
+                        <div>${voteIndicator}</div>
+                    `;
+                    playersList.appendChild(card);
+                });
+            }
+
+            function renderChat(messages) {
+                chatBox.innerHTML = '';
+                const myPlayer = localGameState.players ? localGameState.players[currentPlayerId] : null;
+
+                messages.forEach(msg => {
+                    const isMyMessage = msg.playerId === currentPlayerId;
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = `message-bubble p-3 rounded-lg shadow ${isMyMessage ? 'my-message' : 'other-message'}`;
+                    
+                    let content = ``;
+                    if (!isMyMessage) {
+                       content += `<div class="font-bold text-sm ${isMyMessage ? 'text-indigo-200' : 'text-gray-300'}">${msg.playerName}</div>`;
+                    }
+                    content += `<p>${msg.message}</p>`;
+                    
+                    if (msg.isGhost && myPlayer && !myPlayer.isAlive) {
+                        messageDiv.classList.add('opacity-60', 'italic');
+                    } else if (msg.isGhost && myPlayer && myPlayer.isAlive) {
+                        return;
+                    }
+
+                    messageDiv.innerHTML = content;
+                    chatBox.appendChild(messageDiv);
+                });
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+
+            function resetUIForNewPhase() {
+                waitingArea.classList.add('hidden');
+                chatInputArea.classList.add('hidden');
+                actionButtonsArea.classList.add('hidden');
+                systemMessage.classList.add('hidden');
+                
+                selectedPlayerId = null;
+                playersList.querySelectorAll('.player-card.selected').forEach(card => card.classList.remove('selected'));
+                playersList.querySelectorAll('.player-card').forEach(card => card.dataset.selectable = 'false');
+
+                const myPlayer = localGameState.players[currentPlayerId];
+                if (!myPlayer || !myPlayer.isAlive) {
+                    chatInput.disabled = true;
+                    return;
+                }
+                chatInput.disabled = false;
+
+                const phase = localGameState.phase;
+                if (phase === 'day-discussion') {
+                    chatInputArea.classList.remove('hidden');
+                    let message = `${localGameState.day}日目の朝です。`;
+                    if(localGameState.day > 1 && localGameState.lastAttacked && localGameState.players[localGameState.lastAttacked]) {
+                        message += `昨晩、${localGameState.players[localGameState.lastAttacked].name} さんが犠牲になりました。`;
+                    } else if (localGameState.day > 1) {
+                         message += `昨晩は誰も犠牲になりませんでした。`;
+                    }
+                     message += '議論を開始してください。';
+                    showSystemMessage(message, 'info');
+                } else if (phase === 'day-vote') {
+                    chatInputArea.classList.remove('hidden');
+                    actionButtonsArea.classList.remove('hidden');
+                    actionPrompt.textContent = '処刑する人を選んで投票してください。';
+                    setPlayersSelectable(true, false);
+                } else if (phase === 'execution') {
+                    const executedPlayerId = localGameState.lastExecuted;
+                    let message = '投票の結果、';
+                    if (executedPlayerId && localGameState.players[executedPlayerId]) {
+                        message += `${localGameState.players[executedPlayerId].name}さんが処刑されました。`;
+                    } else {
+                        message += '誰も処刑されませんでした。';
+                    }
+                    showSystemMessage(message, 'warning');
+                } else if (phase === 'night') {
+                    chatInput.disabled = true;
+                    const role = myPlayer.role;
+                    if (role !== 'villager') {
+                        actionButtonsArea.classList.remove('hidden');
+                        if (role === 'werewolf') {
+                             actionPrompt.textContent = '襲撃する人を選んでください。';
+                             setPlayersSelectable(true, false);
+                        } else if (role === 'seer') {
+                            actionPrompt.textContent = '占う人を選んでください。';
+                            setPlayersSelectable(true, true);
+                        } else if (role === 'knight') {
+                            actionPrompt.textContent = '護衛する人を選んでください。';
+                            setPlayersSelectable(true, true);
+                        }
+                    }
+                    showSystemMessage('夜になりました。各役職は能力を使用してください。', 'info');
+                    if (localGameState.seerResult && myPlayer.role === 'seer') {
+                        const resultText = localGameState.seerResult.isWerewolf ? '人狼でした' : '人狼ではありませんでした';
+                        showSystemMessage(`占い結果: ${localGameState.seerResult.targetName} は ${resultText}。`, 'special', 10000);
+                    }
+                } else if (phase === 'result') {
+                    showResultModal();
+                }
+            }
+            
+            function showResultModal() {
+                resultModal.classList.remove('hidden');
+                const winnerTeam = localGameState.winner === 'werewolf' ? '人狼' : '村人';
+                const titleColor = localGameState.winner === 'werewolf' ? 'text-red-400' : 'text-blue-400';
+                resultTitle.className = `text-4xl font-bold mb-4 ${titleColor}`;
+                resultTitle.textContent = `${winnerTeam}陣営の勝利！`;
+                resultMessage.textContent = localGameState.winMessage;
+                
+                resultRoles.innerHTML = '<h3 class="text-xl font-semibold mb-2">役職一覧</h3>';
+                Object.values(localGameState.players).forEach(p => {
+                    const roleInfo = ROLES[p.role];
+                    resultRoles.innerHTML += `
+                        <div class="flex justify-center items-center gap-4">
+                            <span class="w-32 text-left font-medium">${p.name}</span>
+                            <span class="w-24 text-left ${roleInfo.color}"><i class="${roleInfo.icon} mr-2"></i>${roleInfo.name}</span>
+                        </div>
+                    `;
+                });
+            }
+
+            // ========== ヘルパー関数 ==========
+            function generateGameId() {
+                return Math.random().toString(36).substring(2, 7).toUpperCase();
+            }
+            
+            function assignRoles(playerCount) {
+                let roles = [];
+                const werewolfCount = Math.floor(playerCount / 3);
+                for (let i = 0; i < werewolfCount; i++) roles.push('werewolf');
+                if (playerCount >= 4) roles.push('seer');
+                if (playerCount >= 5) roles.push('knight');
+                while (roles.length < playerCount) {
+                    roles.push('villager');
+                }
+                return roles.sort(() => Math.random() - 0.5);
+            }
+
+            function checkGameStartCondition() {
+                const playerCount = Object.keys(localGameState.players || {}).length;
+                if (localGameState.hostId === currentPlayerId && localGameState.status === 'waiting') {
+                    startGameBtn.classList.remove('hidden'); // ホストにはボタンを表示
+                    startGameBtn.disabled = playerCount < 4;
+                } else {
+                    startGameBtn.classList.add('hidden'); // ホスト以外にはボタンを隠す
+                }
+            }
+            
+            function checkPhaseCompletion() {
+                if (localGameState.phase === 'night') {
+                    const myPlayer = localGameState.players[currentPlayerId];
+                    if (myPlayer.nightActionTarget) {
+                        actionButtonsArea.classList.add('hidden');
+                    }
+                } else if (localGameState.phase === 'day-vote') {
+                    const myPlayer = localGameState.players[currentPlayerId];
+                    if (myPlayer.voteTarget) {
+                        actionButtonsArea.classList.add('hidden');
+                    }
+                }
+            }
+            
+            function setPlayersSelectable(selectable, canSelectSelf) {
+                playersList.querySelectorAll('.player-card').forEach(card => {
+                    const playerId = card.dataset.id;
+                    const player = localGameState.players[playerId];
+                    if (selectable && player.isAlive && (canSelectSelf || playerId !== currentPlayerId)) {
+                        card.dataset.selectable = 'true';
+                        card.classList.add('hover:bg-gray-600');
+                    } else {
+                        card.dataset.selectable = 'false';
+                        card.classList.remove('hover:bg-gray-600');
+                    }
+                });
+            }
+
+            function updateConfirmActionBtnState() {
+                confirmActionBtn.disabled = !selectedPlayerId;
+            }
+
+            function startTimer(endTime) {
+                clearTimer();
+                if (!endTime || !endTime.toDate) return;
+                
+                const endDate = endTime.toDate();
+                countdownInterval = setInterval(() => {
+                    const now = new Date();
+                    const diff = Math.round((endDate.getTime() - now.getTime()) / 1000);
+                    if (diff <= 0) {
+                        timerEl.textContent = '00:00';
+                        clearTimer();
+                    } else {
+                        const minutes = Math.floor(diff / 60).toString().padStart(2, '0');
+                        const seconds = (diff % 60).toString().padStart(2, '0');
+                        timerEl.textContent = `${minutes}:${seconds}`;
+                    }
+                }, 1000);
+            }
+
+            function clearTimer() {
+                clearInterval(countdownInterval);
+                timerEl.textContent = '';
+            }
+
+            function showSystemMessage(message, type = 'info', duration = null) {
+                systemMessage.textContent = message;
+                systemMessage.classList.remove('hidden', 'bg-gray-900', 'bg-yellow-900', 'bg-purple-900');
+                if (type === 'info') systemMessage.classList.add('bg-gray-900');
+                if (type === 'warning') systemMessage.classList.add('bg-yellow-900', 'text-yellow-200');
+                if (type === 'special') systemMessage.classList.add('bg-purple-900', 'text-purple-200');
+
+                if (duration) {
+                    setTimeout(() => systemMessage.classList.add('hidden'), duration);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+
