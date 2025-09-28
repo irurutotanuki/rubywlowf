@@ -172,9 +172,14 @@
                     <!-- アクションボタン -->
                     <div id="action-buttons-area" class="hidden text-center">
                         <p id="action-prompt" class="mb-4 text-gray-300">行動を選択してください。</p>
-                        <button id="confirm-action-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed">
-                            <i class="fas fa-check-circle mr-2"></i>この人に決定
-                        </button>
+                        <div class="flex justify-center items-center gap-4">
+                            <button id="confirm-action-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed">
+                                <i class="fas fa-check-circle mr-2"></i>この人に決定
+                            </button>
+                            <button id="skip-vote-btn" class="hidden bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105">
+                                <i class="fas fa-forward mr-2"></i>スキップ
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -271,6 +276,7 @@
             const actionButtonsArea = document.getElementById('action-buttons-area');
             const actionPrompt = document.getElementById('action-prompt');
             const confirmActionBtn = document.getElementById('confirm-action-btn');
+            const skipVoteBtn = document.getElementById('skip-vote-btn');
             const resultModal = document.getElementById('result-modal');
             const resultTitle = document.getElementById('result-title');
             const resultMessage = document.getElementById('result-message');
@@ -386,6 +392,13 @@
                     showSystemMessage(`あなたは ${localGameState.players[selectedPlayerId].name} に能力を使いました。`, 'info', 5000);
                 }
                 
+                actionButtonsArea.classList.add('hidden');
+            });
+
+            skipVoteBtn.addEventListener('click', async () => {
+                const playerRef = db.doc(`games/${currentGameId}/players/${currentPlayerId}`);
+                await playerRef.update({ voteTarget: 'skip' });
+                showSystemMessage('投票をスキップしました。', 'info', 3000);
                 actionButtonsArea.classList.add('hidden');
             });
 
@@ -531,7 +544,7 @@
                 const players = Object.values(localGameState.players).filter(p => p.isAlive);
                 const votes = {};
                 players.forEach(p => {
-                    if(p.voteTarget) {
+                    if(p.voteTarget && p.voteTarget !== 'skip') {
                         votes[p.voteTarget] = (votes[p.voteTarget] || 0) + 1;
                     }
                 });
@@ -692,7 +705,11 @@
 
                     let voteIndicator = '';
                     if (localGameState.phase === 'day-vote' && player.voteTarget) {
-                        voteIndicator = `<i class="fas fa-check-circle text-green-400" title="投票済み"></i>`;
+                        if (player.voteTarget === 'skip') {
+                            voteIndicator = `<i class="fas fa-forward text-gray-400" title="スキップ"></i>`;
+                        } else {
+                            voteIndicator = `<i class="fas fa-check-circle text-green-400" title="投票済み"></i>`;
+                        }
                     }
                     
                     const hostIcon = player.isHost ? `<i class="fas fa-crown text-yellow-400 ml-2" title="部屋主"></i>` : '';
@@ -741,6 +758,7 @@
                 chatInputArea.classList.add('hidden');
                 actionButtonsArea.classList.add('hidden');
                 systemMessage.classList.add('hidden');
+                skipVoteBtn.classList.add('hidden');
                 
                 selectedPlayerId = null;
                 playersList.querySelectorAll('.player-card.selected').forEach(card => card.classList.remove('selected'));
@@ -767,6 +785,7 @@
                 } else if (phase === 'day-vote') {
                     chatInputArea.classList.remove('hidden');
                     actionButtonsArea.classList.remove('hidden');
+                    skipVoteBtn.classList.remove('hidden');
                     actionPrompt.textContent = '処刑する人を選んで投票してください。';
                     setPlayersSelectable(true, false);
                 } else if (phase === 'execution') {
